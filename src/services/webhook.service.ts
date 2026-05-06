@@ -156,10 +156,14 @@ export class WebhookService {
                 console.log(`[WEBHOOK] Nuevo registro de pago creado → SUCCESS`);
             }
 
-            // ── Notificar al appointment-service (fire-and-forget) ────────────
+            // ── Notificar al appointment-service (fire-and-forget) ────────────────────
             if (invoice.appointment_id) {
                 this.confirmAppointment(invoice.appointment_id, invoice.id).catch(e =>
                     console.error('[WEBHOOK] Error al confirmar cita:', e)
+                );
+                // Notificar al dueño que su pago fue procesado
+                this.notifyPaymentConfirmed(invoice).catch(e =>
+                    console.error('[WEBHOOK] Error enviando notificación de pago:', e)
                 );
             } else {
                 console.log('[WEBHOOK] Factura sin appointment_id — no se confirma cita');
@@ -197,5 +201,35 @@ export class WebhookService {
         }
 
         console.log(`[WEBHOOK] ✅ Cita ${appointmentId} confirmada exitosamente (invoice: ${invoiceId})`);
+    }
+
+    /**
+     * Envía notificación al dueño confirmando que el pago fue procesado.
+     */
+    private async notifyPaymentConfirmed(invoice: { id: string; owner_id: string; appointment_id?: string | null; total_amount: number; reference?: string | null }): Promise<void> {
+        if (!env.NOTIFICATION_SERVICE_URL) return;
+
+        const amount = new Intl.NumberFormat('es-CO').format(invoice.total_amount);
+        const ref    = invoice.reference ?? 'N/A';
+
+        console.log(`[WEBHOOK] Enviando notificación de pago confirmado al dueño: ${invoice.owner_id}`);
+
+        await fetch(`${env.NOTIFICATION_SERVICE_URL}/api/v1/notifications`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-internal-service-key': env.INTERNAL_SERVICE_KEY,
+            },
+            body: JSON.stringify({
+                user_id:  invoice.owner_id,
+                type:     'APPOINTMENT_REMINDER',
+                title:    '✅ Pago confirmado — Cita confirmada',
+                message:  `¡Tu pago fue procesado exitosamente!\n\n💳 Monto: $${amount} COP\n🔖 Referencia: ${ref}\n\n🐾 Tu cita ha quedado confirmada. ¡Nos vemos pronto en PetWell!`,
+                channel:  'EMAIL',
+                metadata: { invoice_id: invoice.id, appointment_id: invoice.appointment_id },
+            }),
+        });
+
+        console.log(`[WEBHOOK] ✅ Notificación de pago enviada para factura: ${invoice.id}`);
     }
 }
