@@ -11,6 +11,7 @@ declare global {
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
+        console.warn('[Auth] ❌ No Bearer token provided');
         res.status(401).json({ success: false, message: 'Token no proporcionado' });
         return;
     }
@@ -18,8 +19,13 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
     const token = authHeader.split(' ')[1];
     try {
         req.user = verifyToken(token);
+        console.log('[Auth] ✅ Token válido. user:', req.user?.sub, 'role:', req.user?.role);
         next();
-    } catch {
+    } catch (err) {
+        const jwtError = err as Error;
+        console.error('[Auth] ❌ JWT verification failed:', jwtError.name, '-', jwtError.message);
+        console.error('[Auth] JWT_SECRET length:', process.env.JWT_SECRET?.length ?? 'UNDEFINED');
+        console.error('[Auth] Token (first 40 chars):', token?.substring(0, 40));
         res.status(401).json({ success: false, message: 'Token inválido o expirado' });
     }
 }
