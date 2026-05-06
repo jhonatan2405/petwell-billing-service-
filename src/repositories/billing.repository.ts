@@ -114,10 +114,12 @@ export class InvoiceRepository {
             .from(this.TABLE)
             .select('*')
             .eq('bold_link', link)
-            .maybeSingle();
+            .eq('status', 'PENDING_PAYMENT')
+            .order('created_at', { ascending: false })
+            .limit(1);
 
-        if (error) return null;
-        return data as Invoice | null;
+        if (error || !data || data.length === 0) return null;
+        return data[0] as Invoice;
     }
 
     async updateStatus(id: string, status: InvoiceStatus): Promise<Invoice> {
