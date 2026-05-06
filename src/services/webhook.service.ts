@@ -75,24 +75,54 @@ export class WebhookService {
                 }
             }
 
-            // 2. Fallback: buscar por bold_link (en lugar de la ref antigua INV-XXXX)
+            // 2. Fallback: buscar por bold_link (esto falla si el link es genérico y hay múltiples facturas)
             if (!invoice) {
                 const link = 
                     (data.metadata?.reference as string | undefined) || 
                     (data.reference as string | undefined) || 
                     (data.order_id as string | undefined) || '';
 
-                console.log("[WEBHOOK] link recibido:", link);
-
                 if (link) {
-                    console.log("[WEBHOOK] buscando por bold_link...");
-                    invoice = await invoiceRepo.findByBoldLink(link);
-                    console.log("[WEBHOOK] factura encontrada:", invoice?.id);
+                    try {
+                        invoice = await invoiceRepo.findByBoldLink(link);
+                    } catch (e) {
+                        console.log("[WEBHOOK] Múltiples facturas con el mismo link estático o error.");
+                    }
+                }
+            }
+
+            // 3. Ultimate Fallback: Match by Payer Email + Status PENDING_PAYMENT
+            if (!invoice && data.payer_email) {
+                console.log(`[WEBHOOK] Intentando fallback por email del pagador: ${data.payer_email}`);
+                const { supabase } = await import('../config/supabase');
+                
+                // Buscar IDs de usuarios con ese correo
+                const { data: users } = await supabase
+                    .from('users')
+                    .select('id')
+                    .eq('email', data.payer_email);
+                
+                if (users && users.length > 0) {
+                    const userIds = users.map(u => u.id);
+                    
+                    // Encontrar la factura PENDING_PAYMENT más reciente de ese usuario
+                    const { data: latestInvoices } = await supabase
+                        .from('invoices')
+                        .select('*')
+                        .in('owner_id', userIds)
+                        .eq('status', 'PENDING_PAYMENT')
+                        .order('created_at', { ascending: false })
+                        .limit(1);
+
+                    if (latestInvoices && latestInvoices.length > 0) {
+                        invoice = latestInvoices[0];
+                        console.log(`[WEBHOOK] ✅ Factura recuperada por email fallback: ${invoice.id}`);
+                    }
                 }
             }
 
             if (!invoice) {
-                console.warn(`[WEBHOOK] ⚠️  No se encontró factura por payment_id ni por bold_link`);
+                console.warn(`[WEBHOOK] ⚠️  No se encontró factura por payment_id, bold_link, ni por email (${data.payer_email})`);
                 return { processed: false, message: 'Factura no encontrada' };
             }
 
