@@ -28,7 +28,7 @@ const metricsMiddleware = promBundle({
   includeUp: true,
   promClient: { collectDefaultMetrics: {} },
 });
-app.use(metricsMiddleware);
+app.use(metricsMiddleware as any);
 
 // ─── Webhook Route (debe ir ANTES de express.json para validar firma HMAC) ─────
 app.use('/api/v1/billing/payments/webhook', webhookRoutes);
